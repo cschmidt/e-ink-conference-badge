@@ -87,29 +87,29 @@ def render_badge_info(name, title="", company="", event=""):
     draw = ImageDraw.Draw(img)
 
     # Top bar with event name
-    bar_h = 28
+    bar_h = 32
     draw.rectangle([0, 0, W, bar_h], fill=DARK_GRAY)
-    font_event = _load_font(bold=True, size=14)
+    font_event = _load_font(bold=True, size=18)
     if event:
         bbox = draw.textbbox((0, 0), event, font=font_event)
         tw = bbox[2] - bbox[0]
         draw.text(((W - tw) // 2, 6), event, fill=WHITE, font=font_event)
 
     # Name (large, bold, centered)
-    font_name = _load_font(bold=True, size=32)
+    font_name = _load_font(bold=True, size=38)
     name_lines = _wrap_text(draw, name, font_name, W - 20)
-    y = 40
+    y = 44
     for line in name_lines:
         bbox = draw.textbbox((0, 0), line, font=font_name)
         tw = bbox[2] - bbox[0]
         draw.text(((W - tw) // 2, y), line, fill=BLACK, font=font_name)
         y += bbox[3] - bbox[1] + 4
 
-    y += 6
+    y += 8
 
     # Title
     if title:
-        font_title = _load_font(bold=False, size=18)
+        font_title = _load_font(bold=False, size=22)
         title_lines = _wrap_text(draw, title, font_title, W - 20)
         for line in title_lines:
             bbox = draw.textbbox((0, 0), line, font=font_title)
@@ -120,7 +120,7 @@ def render_badge_info(name, title="", company="", event=""):
     # Company
     if company:
         y += 4
-        font_company = _load_font(bold=False, size=16)
+        font_company = _load_font(bold=False, size=18)
         bbox = draw.textbbox((0, 0), company, font=font_company)
         tw = bbox[2] - bbox[0]
         draw.text(((W - tw) // 2, y), company, fill=LIGHT_GRAY, font=font_company)
@@ -143,7 +143,7 @@ def render_custom_message(heading, body=""):
     draw = ImageDraw.Draw(img)
 
     # Heading
-    font_heading = _load_font(bold=True, size=20)
+    font_heading = _load_font(bold=True, size=24)
     heading_lines = _wrap_text(draw, heading, font_heading, W - 24)
     y = 12
     for line in heading_lines:
@@ -158,7 +158,7 @@ def render_custom_message(heading, body=""):
 
     # Body text
     if body:
-        font_body = _load_font(bold=False, size=18)
+        font_body = _load_font(bold=False, size=20)
         body_lines = _wrap_text(draw, body, font_body, W - 24)
         for line in body_lines:
             if y > H - 20:
@@ -200,16 +200,16 @@ def render_qr_code(url, label=""):
 
     # Label below QR
     if label:
-        font_label = _load_font(bold=True, size=16)
+        font_label = _load_font(bold=True, size=20)
         bbox = draw.textbbox((0, 0), label, font=font_label)
         tw = bbox[2] - bbox[0]
         draw.text(((W - tw) // 2, qr_y + qr_size + 10), label, fill=BLACK, font=font_label)
 
     # URL below label
-    font_url = _load_font(bold=False, size=12)
+    font_url = _load_font(bold=False, size=14)
     bbox = draw.textbbox((0, 0), url, font=font_url)
     tw = bbox[2] - bbox[0]
-    draw.text(((W - tw) // 2, H - 22), url, fill=DARK_GRAY, font=font_url)
+    draw.text(((W - tw) // 2, H - 24), url, fill=DARK_GRAY, font=font_url)
 
     return _img_to_base64(img)
 
