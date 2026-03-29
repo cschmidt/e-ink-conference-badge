@@ -46,18 +46,19 @@ _state = {
 }
 
 
-def _mqtt_publish(png_bytes):
-    """Publish PNG bytes to MQTT topic. Fire-and-forget — failures are logged, not raised."""
+def _mqtt_publish(png_bytes, layout_type):
+    """Publish PNG bytes to MQTT topic. Payload format: layout_type + newline + PNG bytes."""
     if not config.MQTT_BROKER:
         return
     try:
+        payload = layout_type.encode() + b"\n" + png_bytes
         client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
         if config.MQTT_USER:
             client.username_pw_set(config.MQTT_USER, config.MQTT_PASSWORD)
         client.connect(config.MQTT_BROKER, config.MQTT_PORT, keepalive=10)
-        client.publish(config.MQTT_TOPIC, png_bytes, qos=1)
+        client.publish(config.MQTT_TOPIC, payload, qos=1)
         client.disconnect()
-        log.info("MQTT: published %d bytes to %s", len(png_bytes), config.MQTT_TOPIC)
+        log.info("MQTT: published %s (%d bytes) to %s", layout_type, len(png_bytes), config.MQTT_TOPIC)
     except Exception as e:
         log.warning("MQTT publish failed (badge will use polling fallback): %s", e)
 
@@ -68,7 +69,7 @@ def _set_pending(bitmap_b64, layout_type):
     _state["bitmap"] = bitmap_b64
     _state["layout_type"] = layout_type
     _state["updated_at"] = time.time()
-    _mqtt_publish(base64.b64decode(bitmap_b64))
+    _mqtt_publish(base64.b64decode(bitmap_b64), layout_type)
 
 
 # --- Badge polling endpoints ---
@@ -181,6 +182,9 @@ def badge_update():
       {"type": "raw", "bitmap": "<base64 badge bytes>"}
     """
     data = request.get_json(silent=True) or {}
+    log.info("Badge update request: %s", data)
+    if not data:
+        return jsonify({"error": "Empty request body. Send JSON with 'type' field."}), 400
     update_type = data.get("type", "badge_info")
 
     if update_type == "badge_info":

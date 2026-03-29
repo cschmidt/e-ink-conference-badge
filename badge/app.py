@@ -215,12 +215,19 @@ def mqtt_check():
         return False
 
     if _mqtt_pending:
-        png_data = _mqtt_pending
+        raw = _mqtt_pending
         _mqtt_pending = None
-        # Save as badge_info by default (server could add metadata later)
-        slot = SLOT_BADGE
+        # Payload format: layout_type + newline + PNG bytes
+        nl = raw.find(b"\n")
+        if nl > 0:
+            layout_type = raw[:nl].decode()
+            png_data = raw[nl + 1:]
+        else:
+            layout_type = SLOT_BADGE
+            png_data = raw
+        slot = layout_type if layout_type in (SLOT_BADGE, SLOT_CUSTOM, SLOT_QR) else SLOT_BADGE
         save_png(png_data, slot)
-        del png_data
+        del raw, png_data
         gc.collect()
         if show_layout(slot):
             flush_display()
