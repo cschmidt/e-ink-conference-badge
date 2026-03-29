@@ -114,7 +114,7 @@ def render_badge_info(name, title="", company="", event=""):
         for line in title_lines:
             bbox = draw.textbbox((0, 0), line, font=font_title)
             tw = bbox[2] - bbox[0]
-            draw.text(((W - tw) // 2, y), line, fill=DARK_GRAY, font=font_title)
+            draw.text(((W - tw) // 2, y), line, fill=BLACK, font=font_title)
             y += bbox[3] - bbox[1] + 2
 
     # Company
@@ -123,7 +123,7 @@ def render_badge_info(name, title="", company="", event=""):
         font_company = _load_font(bold=False, size=18)
         bbox = draw.textbbox((0, 0), company, font=font_company)
         tw = bbox[2] - bbox[0]
-        draw.text(((W - tw) // 2, y), company, fill=LIGHT_GRAY, font=font_company)
+        draw.text(((W - tw) // 2, y), company, fill=DARK_GRAY, font=font_company)
 
     # Bottom accent line
     draw.rectangle([20, H - 6, W - 20, H - 4], fill=BLACK)
@@ -163,7 +163,7 @@ def render_custom_message(heading, body=""):
         for line in body_lines:
             if y > H - 20:
                 break
-            draw.text((12, y), line, fill=DARK_GRAY, font=font_body)
+            draw.text((12, y), line, fill=BLACK, font=font_body)
             bbox = draw.textbbox((0, 0), line, font=font_body)
             y += bbox[3] - bbox[1] + 3
 
@@ -189,13 +189,14 @@ def render_qr_code(url, label=""):
     qr.make(fit=True)
     qr_img = qr.make_image(fill_color="black", back_color="white").convert("L")
 
-    # Scale QR to fill available space (max 140x140)
-    qr_size = min(140, qr_img.width, qr_img.height)
+    # Scale QR as large as possible, leaving room for label
+    qr_max = H - 40  # 176 - 40 = 136px for QR, 40px for label below
+    qr_size = min(qr_max, qr_img.width, qr_img.height)
     qr_img = qr_img.resize((qr_size, qr_size), Image.Resampling.NEAREST)
 
-    # Center QR code vertically, leaving room for label below
+    # Center QR code
     qr_x = (W - qr_size) // 2
-    qr_y = 8
+    qr_y = 4
     img.paste(qr_img, (qr_x, qr_y))
 
     # Label below QR

@@ -426,27 +426,23 @@ def update():
         badge.sleep()
         return
 
+    # Check MQTT for incoming messages
     if mqtt_ok:
-        # MQTT mode: check for messages frequently (every 0.5s)
-        # Use short wait_for_button_or_alarm calls so buttons stay responsive
-        for _ in range(POLL_SECONDS * 2):  # 30s total, checking every 0.5s
-            if mqtt_check():
-                break  # Got an update, restart loop for button handling
-            wait_for_button_or_alarm(timeout=500)
-            if badge.pressed(BUTTON_A) or badge.pressed(BUTTON_B) or badge.pressed(BUTTON_C) or badge.pressed(BUTTON_UP) or badge.pressed(BUTTON_DOWN):
-                break  # Button pressed, restart loop to handle it
+        mqtt_check()
     elif wifi_ok:
-        # Polling fallback: poll once, then sleep
-        do_poll()
-        rtc.set_alarm(seconds=POLL_SECONDS)
-        wait_for_button_or_alarm(timeout=POLL_SECONDS * 1000)
-    else:
-        # No connectivity: just wait for buttons
-        wait_for_button_or_alarm(timeout=POLL_SECONDS * 1000)
+        # HTTP poll fallback — only poll every POLL_SECONDS
+        if time.time() - state.get("last_poll", 0) >= POLL_SECONDS:
+            state["last_poll"] = time.time()
+            do_poll()
 
     # Try MQTT reconnect periodically if it's down
     if wifi_ok and not mqtt_ok:
-        mqtt_ok = mqtt_connect()
+        if time.time() - state.get("last_mqtt_retry", 0) >= 60:
+            state["last_mqtt_retry"] = time.time()
+            mqtt_ok = mqtt_connect()
+
+    # Short sleep — buttons and MQTT both stay responsive
+    wait_for_button_or_alarm(timeout=500)
 
 
 def on_exit():
