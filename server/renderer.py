@@ -109,7 +109,7 @@ def render_badge_info(name, title="", company="", event=""):
 
     # Title
     if title:
-        font_title = _load_font(bold=False, size=22)
+        font_title = _load_font(bold=True, size=22)
         title_lines = _wrap_text(draw, title, font_title, W - 20)
         for line in title_lines:
             bbox = draw.textbbox((0, 0), line, font=font_title)
@@ -158,7 +158,7 @@ def render_custom_message(heading, body=""):
 
     # Body text
     if body:
-        font_body = _load_font(bold=False, size=20)
+        font_body = _load_font(bold=True, size=20)
         body_lines = _wrap_text(draw, body, font_body, W - 24)
         for line in body_lines:
             if y > H - 20:
@@ -189,13 +189,13 @@ def render_qr_code(url, label=""):
     qr.make(fit=True)
     qr_img = qr.make_image(fill_color="black", back_color="white").convert("L")
 
-    # Scale QR to fit nicely (max 120x120)
-    qr_size = min(120, qr_img.width, qr_img.height)
+    # Scale QR to fill available space (max 140x140)
+    qr_size = min(140, qr_img.width, qr_img.height)
     qr_img = qr_img.resize((qr_size, qr_size), Image.Resampling.NEAREST)
 
-    # Center QR code
+    # Center QR code vertically, leaving room for label below
     qr_x = (W - qr_size) // 2
-    qr_y = 16
+    qr_y = 8
     img.paste(qr_img, (qr_x, qr_y))
 
     # Label below QR
@@ -203,13 +203,7 @@ def render_qr_code(url, label=""):
         font_label = _load_font(bold=True, size=20)
         bbox = draw.textbbox((0, 0), label, font=font_label)
         tw = bbox[2] - bbox[0]
-        draw.text(((W - tw) // 2, qr_y + qr_size + 10), label, fill=BLACK, font=font_label)
-
-    # URL below label
-    font_url = _load_font(bold=False, size=14)
-    bbox = draw.textbbox((0, 0), url, font=font_url)
-    tw = bbox[2] - bbox[0]
-    draw.text(((W - tw) // 2, H - 24), url, fill=DARK_GRAY, font=font_url)
+        draw.text(((W - tw) // 2, qr_y + qr_size + 8), label, fill=BLACK, font=font_label)
 
     return _img_to_base64(img)
 
