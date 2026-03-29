@@ -184,14 +184,13 @@ def render_qr_code(url, label=""):
     draw = ImageDraw.Draw(img)
 
     # Generate QR code
-    qr = qrcode.QRCode(version=None, error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=3, border=2)
+    qr = qrcode.QRCode(version=None, error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=10, border=1)
     qr.add_data(url)
     qr.make(fit=True)
     qr_img = qr.make_image(fill_color="black", back_color="white").convert("L")
 
-    # Scale QR as large as possible, leaving room for label
-    qr_max = H - 40  # 176 - 40 = 136px for QR, 40px for label below
-    qr_size = min(qr_max, qr_img.width, qr_img.height)
+    # Scale to fill available space, leaving room for label
+    qr_size = H - 40  # 136px
     qr_img = qr_img.resize((qr_size, qr_size), Image.Resampling.NEAREST)
 
     # Center QR code
