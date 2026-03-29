@@ -30,10 +30,10 @@ secrets.WIFI_PASSWORD = "b1ng0b0ng0"
 
 # --- Configuration ---
 # MQTT broker (on mabel/TrueNAS, public via clara.schmidthaus.ca)
-MQTT_BROKER = "clara.schmidthaus.ca"
+MQTT_BROKER = "192.168.86.10"  # mabel LAN; use clara.schmidthaus.ca for conference
 MQTT_PORT = 1883
 MQTT_USER = b"badger"
-MQTT_PASSWORD = b""  # Set when Mosquitto is configured
+MQTT_PASSWORD = b"b4dg3r-m4b3l"
 MQTT_TOPIC = b"badge/carl/display"
 MQTT_CLIENT_ID = b"badger-carl"
 
@@ -426,20 +426,27 @@ def update():
         badge.sleep()
         return
 
-    # Check MQTT for incoming messages (primary path)
     if mqtt_ok:
-        mqtt_check()
-    # Fallback: HTTP poll on timer if no MQTT
+        # MQTT mode: check for messages frequently (every 0.5s)
+        # Use short wait_for_button_or_alarm calls so buttons stay responsive
+        for _ in range(POLL_SECONDS * 2):  # 30s total, checking every 0.5s
+            if mqtt_check():
+                break  # Got an update, restart loop for button handling
+            wait_for_button_or_alarm(timeout=500)
+            if badge.pressed(BUTTON_A) or badge.pressed(BUTTON_B) or badge.pressed(BUTTON_C) or badge.pressed(BUTTON_UP) or badge.pressed(BUTTON_DOWN):
+                break  # Button pressed, restart loop to handle it
     elif wifi_ok:
+        # Polling fallback: poll once, then sleep
         do_poll()
+        rtc.set_alarm(seconds=POLL_SECONDS)
+        wait_for_button_or_alarm(timeout=POLL_SECONDS * 1000)
+    else:
+        # No connectivity: just wait for buttons
+        wait_for_button_or_alarm(timeout=POLL_SECONDS * 1000)
 
     # Try MQTT reconnect periodically if it's down
     if wifi_ok and not mqtt_ok:
         mqtt_ok = mqtt_connect()
-
-    # Sleep until button or alarm
-    rtc.set_alarm(seconds=POLL_SECONDS)
-    wait_for_button_or_alarm(timeout=POLL_SECONDS * 1000)
 
 
 def on_exit():
