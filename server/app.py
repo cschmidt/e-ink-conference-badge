@@ -19,6 +19,7 @@ import logging
 import time
 
 from flask import Flask, request, jsonify, send_file
+import paho.mqtt.client as mqtt
 
 import config
 from renderer import (
@@ -43,6 +44,31 @@ _state = {
     "layout_type": None,  # "badge_info", "custom", "qr"
     "updated_at": None,
 }
+
+
+def _mqtt_publish(png_bytes):
+    """Publish PNG bytes to MQTT topic. Fire-and-forget — failures are logged, not raised."""
+    if not config.MQTT_BROKER:
+        return
+    try:
+        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+        if config.MQTT_USER:
+            client.username_pw_set(config.MQTT_USER, config.MQTT_PASSWORD)
+        client.connect(config.MQTT_BROKER, config.MQTT_PORT, keepalive=10)
+        client.publish(config.MQTT_TOPIC, png_bytes, qos=1)
+        client.disconnect()
+        log.info("MQTT: published %d bytes to %s", len(png_bytes), config.MQTT_TOPIC)
+    except Exception as e:
+        log.warning("MQTT publish failed (badge will use polling fallback): %s", e)
+
+
+def _set_pending(bitmap_b64, layout_type):
+    """Update state and publish to MQTT."""
+    _state["pending"] = True
+    _state["bitmap"] = bitmap_b64
+    _state["layout_type"] = layout_type
+    _state["updated_at"] = time.time()
+    _mqtt_publish(base64.b64decode(bitmap_b64))
 
 
 # --- Badge polling endpoints ---
@@ -130,10 +156,7 @@ def process_photo():
         extracted = extract_badge_text(image_bytes, media_type)
         bitmap = render_from_extracted_text(extracted)
 
-        _state["pending"] = True
-        _state["bitmap"] = bitmap
-        _state["layout_type"] = "badge_info"
-        _state["updated_at"] = time.time()
+        _set_pending(bitmap, "badge_info")
 
         log.info("Photo processed: %s", extracted.get("name", "unknown"))
         return jsonify({
@@ -182,10 +205,7 @@ def badge_update():
     else:
         return jsonify({"error": f"Unknown type: {update_type}"}), 400
 
-    _state["pending"] = True
-    _state["bitmap"] = bitmap
-    _state["layout_type"] = update_type
-    _state["updated_at"] = time.time()
+    _set_pending(bitmap, update_type)
 
     return jsonify({"ok": True, "type": update_type})
 

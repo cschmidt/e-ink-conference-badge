@@ -4,3 +4,4 @@ qrcode>=7.4
 anthropic>=0.40
 requests>=2.31
 gunicorn>=21.2
+paho-mqtt>=2.0

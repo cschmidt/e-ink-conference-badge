@@ -1,13 +1,13 @@
 """E-Ink Conference Badge - Badgeware App
 
-Polls a server for badge display updates (PNG images), renders them,
-and handles button-based mode switching.
+MQTT subscribe for instant updates, HTTP polling as fallback.
+Renders server-generated PNGs to 264x176 4-level grayscale e-ink display.
 
 Buttons:
   A - Show badge info (name/title/company)
   B - Show custom message
   C - Show QR code
-  UP - Force poll for update
+  UP - Force poll for update / reconnect
   DOWN - Sleep mode
 """
 
@@ -22,15 +22,24 @@ os.chdir("/data/apps/eink_badge")
 
 import urequests
 import wifi
+from umqtt.simple import MQTTClient
 
 # --- WiFi credentials (override frozen secrets) ---
 secrets.WIFI_SSID = "SchmidtHaus"
 secrets.WIFI_PASSWORD = "b1ng0b0ng0"
 
 # --- Configuration ---
+# MQTT broker (on mabel/TrueNAS, public via clara.schmidthaus.ca)
+MQTT_BROKER = "clara.schmidthaus.ca"
+MQTT_PORT = 1883
+MQTT_USER = b"badger"
+MQTT_PASSWORD = b""  # Set when Mosquitto is configured
+MQTT_TOPIC = b"badge/carl/display"
+MQTT_CLIENT_ID = b"badger-carl"
+
+# HTTP polling fallback (bill-cipher)
 SERVER_URLS = [
     "http://192.168.86.165:5555",  # bill-cipher LAN
-    "http://100.110.201.90:5555",  # bill-cipher Tailscale (if badge ever gets TS)
 ]
 POLL_SECONDS = 30
 DATA_DIR = "/data/eink_badge"
@@ -43,16 +52,16 @@ SLOT_QR = "qr"
 # --- State ---
 state = {
     "current_slot": SLOT_BADGE,
-    "last_poll": 0,
     "wifi_ok": False,
 }
 
 State.load("eink_badge", state)
 
-# Track which server URL works
 _server_url = SERVER_URLS[0]
-# Track whether we need a display refresh
 _needs_update = False
+_mqtt_client = None
+_mqtt_connected = False
+_mqtt_pending = None  # (png_bytes, layout_type) received via MQTT
 
 
 # --- Helpers ---
@@ -109,7 +118,6 @@ def show_text(title, lines):
     screen.pen = color.white
     screen.clear()
 
-    # Title bar
     screen.pen = color.black
     screen.rectangle(0, 0, screen.width, 26)
     screen.pen = color.white
@@ -117,7 +125,6 @@ def show_text(title, lines):
     w, _ = screen.measure_text(title)
     screen.text(title, (screen.width - w) // 2, 5)
 
-    # Body text
     screen.pen = color.dark_grey
     screen.font = rom_font.smart
     y = 36
@@ -155,23 +162,81 @@ def connect_wifi():
     state["wifi_ok"] = True
     ip = wifi.ip()
     print(f"WiFi connected: {ip}")
-    show_text("CONNECTED", ["", f"IP: {ip}", "", "Polling for updates..."])
+    show_text("CONNECTED", ["", f"IP: {ip}", "", "Starting up..."])
     flush_display()
     time.sleep(1)
     return True
 
 
-# --- Polling ---
+# --- MQTT ---
+
+def _on_mqtt_message(topic, msg):
+    """MQTT message callback. Receives raw PNG bytes."""
+    global _mqtt_pending
+    print(f"MQTT: received {len(msg)} bytes on {topic}")
+    _mqtt_pending = msg
+
+
+def mqtt_connect():
+    """Connect to MQTT broker. Returns True on success."""
+    global _mqtt_client, _mqtt_connected
+    if not MQTT_BROKER or not MQTT_PASSWORD:
+        print("MQTT: no broker/password configured, skipping")
+        return False
+    try:
+        gc.collect()
+        _mqtt_client = MQTTClient(MQTT_CLIENT_ID, MQTT_BROKER,
+                                   port=MQTT_PORT,
+                                   user=MQTT_USER,
+                                   password=MQTT_PASSWORD)
+        _mqtt_client.set_callback(_on_mqtt_message)
+        _mqtt_client.connect()
+        _mqtt_client.subscribe(MQTT_TOPIC)
+        _mqtt_connected = True
+        print(f"MQTT: connected to {MQTT_BROKER}, subscribed to {MQTT_TOPIC}")
+        return True
+    except Exception as e:
+        print(f"MQTT connect failed: {e}")
+        _mqtt_client = None
+        _mqtt_connected = False
+        return False
+
+
+def mqtt_check():
+    """Check for MQTT messages. Returns True if a message was processed."""
+    global _mqtt_pending, _mqtt_connected
+    if not _mqtt_connected or not _mqtt_client:
+        return False
+    try:
+        _mqtt_client.check_msg()
+    except Exception as e:
+        print(f"MQTT check failed: {e}")
+        _mqtt_connected = False
+        return False
+
+    if _mqtt_pending:
+        png_data = _mqtt_pending
+        _mqtt_pending = None
+        # Save as badge_info by default (server could add metadata later)
+        slot = SLOT_BADGE
+        save_png(png_data, slot)
+        del png_data
+        gc.collect()
+        if show_layout(slot):
+            flush_display()
+            return True
+    return False
+
+
+# --- HTTP Polling (fallback) ---
 
 def _try_get(path, timeout=10):
-    """Try GET request against known server URLs."""
     global _server_url
-    # Try current URL first, then fall back to others
     urls = [_server_url] + [u for u in SERVER_URLS if u != _server_url]
     for base in urls:
         try:
             resp = urequests.get(base + path, timeout=timeout)
-            _server_url = base  # Remember which one works
+            _server_url = base
             return resp
         except Exception as e:
             print(f"GET {base}{path} failed: {e}")
@@ -180,7 +245,6 @@ def _try_get(path, timeout=10):
 
 
 def _try_post(path, timeout=10):
-    """Try POST request against known server URLs."""
     global _server_url
     urls = [_server_url] + [u for u in SERVER_URLS if u != _server_url]
     for base in urls:
@@ -196,7 +260,7 @@ def _try_post(path, timeout=10):
 
 def poll_server():
     gc.collect()
-    print("Polling for update...")
+    print("HTTP poll: checking for update...")
     resp = _try_get("/badge/pending")
     if not resp:
         return None, None
@@ -215,7 +279,6 @@ def poll_server():
     layout_type = data.get("layout_type", "badge_info")
     print(f"Poll: update pending (type={layout_type})")
 
-    # Download the PNG image
     gc.collect()
     img_resp = _try_get("/badge/image", timeout=15)
     if not img_resp:
@@ -239,6 +302,7 @@ def clear_pending():
 
 
 def do_poll():
+    """HTTP poll cycle. Only used as fallback when MQTT is unavailable."""
     png_data, layout_type = poll_server()
     if png_data:
         slot = layout_type if layout_type in (SLOT_BADGE, SLOT_CUSTOM, SLOT_QR) else SLOT_BADGE
@@ -250,7 +314,6 @@ def do_poll():
             flush_display()
             clear_pending()
             return True
-
     return False
 
 
@@ -268,6 +331,15 @@ show_text("E-INK BADGE", [
 flush_display()
 
 wifi_ok = connect_wifi()
+
+# Connect MQTT (primary transport)
+mqtt_ok = False
+if wifi_ok:
+    mqtt_ok = mqtt_connect()
+    if mqtt_ok:
+        print("Using MQTT (instant updates)")
+    else:
+        print("MQTT unavailable, using HTTP polling fallback")
 
 # Show last saved layout or default
 if has_layout(state["current_slot"]):
@@ -287,15 +359,17 @@ else:
 
 flush_display()
 
-if wifi_ok:
+# Initial poll if no MQTT
+if wifi_ok and not mqtt_ok:
     do_poll()
 
 
 # --- Main loop ---
 
 def update():
-    global wifi_ok
+    global wifi_ok, mqtt_ok
 
+    # Button A: show badge info
     if badge.pressed(BUTTON_A):
         if has_layout(SLOT_BADGE):
             show_layout(SLOT_BADGE)
@@ -303,6 +377,7 @@ def update():
             show_text("BADGE INFO", ["", "No badge info yet", "", "Send photo via Telegram"])
         flush_display()
 
+    # Button B: show custom message
     if badge.pressed(BUTTON_B):
         if has_layout(SLOT_CUSTOM):
             show_layout(SLOT_CUSTOM)
@@ -310,6 +385,7 @@ def update():
             show_text("CUSTOM MSG", ["", "No custom message yet", "", "Send text via Telegram"])
         flush_display()
 
+    # Button C: show QR code
     if badge.pressed(BUTTON_C):
         if has_layout(SLOT_QR):
             show_layout(SLOT_QR)
@@ -317,20 +393,28 @@ def update():
             show_text("QR CODE", ["", "No QR code yet", "", "Send 'qr:<url>' via Telegram"])
         flush_display()
 
+    # Button UP: force poll / reconnect
     if badge.pressed(BUTTON_UP):
-        if wifi_ok:
-            show_text("E-INK BADGE", ["", "Checking for updates..."])
-            flush_display()
-            if not do_poll():
-                show_text("NO UPDATE", ["", "No pending update", "", "Current display kept"])
-                flush_display()
-        else:
+        if not wifi_ok:
             show_text("E-INK BADGE", ["", "Reconnecting WiFi..."])
             flush_display()
             wifi_ok = connect_wifi()
-            if wifi_ok:
-                do_poll()
 
+        if wifi_ok:
+            # Try MQTT reconnect if it was down
+            if not mqtt_ok:
+                mqtt_ok = mqtt_connect()
+
+            show_text("E-INK BADGE", ["", "Checking for updates..."])
+            flush_display()
+            got_update = mqtt_check() if mqtt_ok else False
+            if not got_update:
+                got_update = do_poll()
+            if not got_update:
+                show_text("NO UPDATE", ["", "No pending update", "", "Current display kept"])
+                flush_display()
+
+    # Button DOWN: sleep
     if badge.pressed(BUTTON_DOWN):
         show_text("SLEEP", [
             "",
@@ -342,9 +426,16 @@ def update():
         badge.sleep()
         return
 
-    # Auto-poll on timer
-    if wifi_ok:
+    # Check MQTT for incoming messages (primary path)
+    if mqtt_ok:
+        mqtt_check()
+    # Fallback: HTTP poll on timer if no MQTT
+    elif wifi_ok:
         do_poll()
+
+    # Try MQTT reconnect periodically if it's down
+    if wifi_ok and not mqtt_ok:
+        mqtt_ok = mqtt_connect()
 
     # Sleep until button or alarm
     rtc.set_alarm(seconds=POLL_SECONDS)
@@ -353,6 +444,11 @@ def update():
 
 def on_exit():
     State.save("eink_badge", state)
+    if _mqtt_client:
+        try:
+            _mqtt_client.disconnect()
+        except:
+            pass
 
 
 run(update)
