@@ -56,7 +56,7 @@ def _mqtt_publish(png_bytes, layout_type):
         if config.MQTT_USER:
             client.username_pw_set(config.MQTT_USER, config.MQTT_PASSWORD)
         client.connect(config.MQTT_BROKER, config.MQTT_PORT, keepalive=10)
-        client.publish(config.MQTT_TOPIC, payload, qos=1)
+        client.publish(config.MQTT_TOPIC, payload, qos=0)
         client.disconnect()
         log.info("MQTT: published %s (%d bytes) to %s", layout_type, len(png_bytes), config.MQTT_TOPIC)
     except Exception as e:
