@@ -23,7 +23,7 @@ import wifi
 from umqtt.simple import MQTTClient
 
 # --- Configuration ---
-MQTT_BROKER = "192.168.86.10"  # mabel LAN; use clara.schmidthaus.ca for conference
+MQTT_BROKER = "clara.schmidthaus.ca"
 MQTT_PORT = 1883
 MQTT_USER = b"badger"
 MQTT_PASSWORD = b"b4dg3r-m4b3l"
